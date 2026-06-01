@@ -27,7 +27,7 @@ func getBook(db *gorm.DB, c fiber.Ctx) error{
 
 func createBook(db *gorm.DB, c fiber.Ctx) error{
 	book := new(Book)
-	if err := c.BodyParser(book); err != nil {
+	if err := c.Bind().JSON(&book); err != nil {
 		return err
 	}
 	db.Create(&book)
@@ -38,7 +38,7 @@ func updateBook(db *gorm.DB, c fiber.Ctx) error{
 	id := c.Params("id")
 	book := new(Book)
 	db.First(&book, id)
-	if err := c.BodyParser(book); err != nil{
+	if err := c.Bind().JSON(&book); err != nil{
 		return err
 	}
 	db.Save(&book)
@@ -111,4 +111,3 @@ func deleteBook(db *gorm.DB, c fiber.Ctx) error{
 // 		return nil, result.Error
 // 	}
 // 	return books, nil
-}
