@@ -3,6 +3,9 @@ package main
 import (
 	"gorm.io/gorm"
 	"github.com/gofiber/fiber/v3"
+	"golang.org/x/crypto/bcrypt"
+	"github.com/golang-jwt/jwt/v4"
+	"time"
 )
 
 type Book struct{
@@ -10,6 +13,12 @@ type Book struct{
 	Name				string `json:"name"`
 	Author 			string `json:"author"`
 	Description	string `json:"description"`
+}
+
+type User struct{
+	gorm.Model
+	Email				string	`gorm:"unique"`
+	Password		string
 }
 
 func getBooks(db *gorm.DB, c fiber.Ctx) error{
@@ -51,63 +60,50 @@ func deleteBook(db *gorm.DB, c fiber.Ctx) error{
 	return c.SendString("Book successfully deleted")
 }
 
-// func CreateBook(db *gorm.DB, book *Book){
-// 	result := db.Create(book)
-// 	if result.Error != nil{
-// 		log.Fatalf("Error creating book: %v", result.Error)
-// 	}
-// 	fmt.Println("Book created successfully")
-// }
+func createUser(db *gorm.DB, c fiber.Ctx) error{
+	user := new(User)
+	if err := c.Bind().JSON(&user); err != nil {
+		return err
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil{
+		return err
+	}
+	user.Password = string(hashedPassword)
 
-// func GetBook(db *gorm.DB, id uint) *Book{
-// 	var book Book
-// 	result := db.First(&book, id)
-// 	if result.Error != nil{
-// 		log.Fatalf("Error finding book: %v", result.Error)
-// 	}
-// 	return &book
-// }
+	db.Create(user)
+	return c.JSON(user)
+}
 
-// func UpdateBook(db *gorm.DB, book *Book){
-// 	result := db.Save(book)
-// 	if result.Error != nil{
-// 		log.Fatalf("Error updating book: %v", result.Error)
-// 	}
-// 	fmt.Println("Book updated successfully")
-// }
+func loginUser(db *gorm.DB, c fiber.Ctx) error{
+	var input User
+	var user User
 
-// func DeleteBook(db *gorm.DB, id uint){
-// 	var book Book
-// 	result := db.Delete(&book, id)
-// 	if result.Error != nil{
-// 		log.Fatalf("Error deleting book: %v", result.Error)
-// 	}
-// 	fmt.Println("Book deleted successfully")
-// }
+	if err := c.Bind().JSON(&input); err != nil{
+		return err
+	}
 
-// func HardDeleteBook(db *gorm.DB, id uint){
-// 	var book Book
-// 	result := db.Unscoped().Delete(&book, id)
-// 	if result.Error != nil{
-// 		return result.Error
-// 	}
-// 	fmt.Println("Book hard deleted successfully")
-// 	return nil
-// }
+	db.Where("email = ?", input.Email).First(&user)
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil{
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
 
-// func getBooksSortedByCreatedAt(db *gorm.DB) ([]Book, error){
-// 	var books []Book
-// 	result := db.Order("created_at desc").Find(&books)
-// 	if result.Error != nil{
-// 		return nil, result.Error
-// 	}
-// 	return books, nil
-// }
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["user_id"] = user.ID
+	claims["exp"] = time.Now().Add(time.Hour * 72).Unix()
 
-// func getBooksByAuthorName(db *gorm.DB, authorName string) ([]Book, error){
-// 	var books []Book
-// 	result := db.Where("author = ?", authorName).Find(&books)
-// 	if result.Error != nil{
-// 		return nil, result.Error
-// 	}
-// 	return books, nil
+	t, err := token.SignedString(jwtSecretKey)
+	if err != nil {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name: "jwt",
+		Value: t,
+		Expires: time.Now().Add(time.Hour * 72),
+		HTTPOnly: true,
+	})
+
+	return c.JSON(fiber.Map{"message": "success"})
+}

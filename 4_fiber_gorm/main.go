@@ -6,6 +6,7 @@ import(
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"github.com/golang-jwt/jwt/v4"
 	"log"
 	"os"
 	"time"
@@ -18,6 +19,21 @@ const (
 	password	= "mypassword"
 	dbname 	= "mydatabase"
 )
+
+var jwtSecretKey = []byte("your_super_secret_key")
+
+func authRequired(c fiber.Ctx) error{
+	cookie := c.Cookies("jwt")
+	token, err := jwt.ParseWithClaims(cookie, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error){
+		return jwtSecretKey, nil
+	})
+
+	if err != nil || !token.Valid{
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+
+	return c.Next()
+}
 
 func main(){
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
@@ -45,6 +61,8 @@ func main(){
 
 	app := fiber.New()
 
+	app.Use("/books", authRequired)
+
 	app.Get("/books", func(c fiber.Ctx) error{
 		return getBooks(db, c)
 	})
@@ -59,6 +77,13 @@ func main(){
 	})
 	app.Delete("/books/:id", func(c fiber.Ctx) error{
 		return deleteBook(db, c)
+	})
+
+	app.Post("/register", func(c fiber.Ctx) error{
+		return createUser(db, c)
+	})
+	app.Post("/login", func(c fiber.Ctx) error{
+		return loginUser(db, c)
 	})
 
 	log.Fatal(app.Listen(":8000"))
